@@ -57,7 +57,7 @@ function bindUI() {
 function retry() {
   Game.reset();
   shownResult = false;
-  popups.length = 0; parts.length = 0; munchT = 0;
+  popups.length = 0; parts.length = 0; munchT = 0; meterV = CFG.candy0; prevCandy = CFG.candy0; meterFlash = 0;
   $('result').classList.remove('show', 'wait');
   $('title').classList.remove('hide');
   Game.begin();   // 「もう一回」は前置きなしですぐ走る

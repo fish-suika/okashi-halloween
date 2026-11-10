@@ -490,7 +490,6 @@ function drawBackground(v) {
   fog.addColorStop(0, 'rgba(26,18,54,0.7)'); fog.addColorStop(1, 'rgba(26,18,54,0)');
   g.fillStyle = fog; g.fillRect(0, 0, cv.width, cv.height * 0.35);
   // 月（沈んでいく）と朝日
-  if (p < 0.78) { const my = 16 + p * 22; g.globalAlpha = 1 - p / 0.78; glow(20, my, 16, 'rgba(255,246,200,1)', 0.35); circle(20, my, 6, '#fff6c8', null); circle(18.4, my - 1.2, 1.3, 'rgba(200,190,150,0.5)', null); circle(21.5, my + 1.6, 0.9, 'rgba(200,190,150,0.5)', null); g.globalAlpha = 1; }
   if (p > 0.8) {
     const s = clamp((p - 0.8) / 0.2, 0, 1);
     glow(50, 6 - (1 - s) * -14, 70, 'rgba(255,190,110,1)', 0.55 * s);
@@ -570,21 +569,51 @@ function drawGhost(o, y) {
 }
 
 // 玄関の明かりがついた家（道の端）。ドアに近づくと住人が「どうぞ」
+// 遠くからでも「ここでお菓子がもらえる」と分かるように：大きく光る家・お菓子の山盛りのお皿・「おかし +8」の看板・矢印
 function drawHouse(o, y) {
-  const left = o.x < 50, x0 = left ? 0 : 84, w = 16, lit = !o.used;
-  rect(x0, y - 11, w, 22, '#5a3a80');
+  const left = o.x < 50, x0 = left ? 0 : 84, w = 16, lit = !o.used, d = left ? 1 : -1;
+  const pulse = 0.5 + 0.5 * Math.sin(nowT * 5);
+  if (lit) glow(left ? 12 : 88, y + 4, 34, 'rgba(255,190,70,1)', 0.45 + 0.15 * pulse);
+  rect(x0, y - 11, w, 22, lit ? '#6b3f8f' : '#4a3a68');
   rect(x0, y - 11, w, 8, 'rgba(0,0,0,0.3)');
-  g.fillStyle = '#2a1650'; g.beginPath();
+  g.fillStyle = lit ? '#e8681a' : '#2a1650'; g.beginPath();                      // 屋根（明かりがついているとオレンジ）
   g.moveTo(sx(x0 - 1), sy(y - 10)); g.lineTo(sx(x0 + w / 2), sy(y - 19)); g.lineTo(sx(x0 + w + 1), sy(y - 10)); g.fill();
-  rect(x0 + 2, y - 6, 4, 4, lit ? '#ffcf5a' : '#6b5a8a'); rect(x0 + 10, y - 6, 4, 4, lit ? '#ffcf5a' : '#6b5a8a');
-  const dx = left ? x0 + w - 5.5 : x0 + 0.5;                                  // ドアは道側
-  rect(dx, y, 5, 11, lit ? '#ff9a3d' : '#3a2858');
+  rect(x0 + 2, y - 6, 4, 4, lit ? '#fff0a0' : '#6b5a8a'); rect(x0 + 10, y - 6, 4, 4, lit ? '#fff0a0' : '#6b5a8a');
+  const dx = left ? x0 + w - 5.5 : x0 + 0.5;                                    // ドアは道側
+  rect(dx - 0.5, y - 0.5, 6, 11.5, lit ? '#fff' : '#3a2858');
+  rect(dx, y, 5, 11, lit ? '#ffb13d' : '#2a1c44');
+  if (lit) circle(dx + (left ? 1 : 4), y + 6, 0.5, '#fff', null);
+  // お菓子のお皿（山盛り）
+  const bx = left ? 19.5 : 80.5, by = y + 8;
+  g.fillStyle = lit ? '#8a5a2b' : '#4a3a2a';
+  g.beginPath(); g.arc(sx(bx), sy(by), 5.6 * S, 0, Math.PI); g.fill();
   if (lit) {
-    glow(left ? 14 : 86, y + 5, 16, 'rgba(255,200,90,1)', 0.45 + 0.1 * Math.sin(nowT * 4));
-    circle(left ? 11 : 89, y + 10, 2.2, '#f07a1a', null);                      // 玄関先のカボチャ
+    const cols = ['#ff5fa0', '#ffd23f', '#6ad0ff', '#7ddc5a', '#ff8a3d', '#c08aff', '#fff'];
+    for (let i = 0; i < 9; i++) {
+      const a = Math.PI + (i + 0.5) / 9 * Math.PI, rr0 = (i % 3 === 1 ? 2.8 : 4.2);
+      circle(bx + Math.cos(a) * rr0 * (i < 6 ? 1 : 0.5), by - 0.2 + Math.sin(a) * rr0 * (i < 6 ? 0.9 : 0.6) - (i >= 6 ? 1.6 : 0), 1.6, cols[i % 7], null);
+    }
+    glow(bx, by - 2, 10, 'rgba(255,240,150,1)', 0.4 + 0.2 * pulse);
+    // 看板「おかし +8」
+    const bob = Math.sin(nowT * 5) * 1.1, sxc = left ? 31 : 69, syc = y - 21 + bob, bw = 34, bh = 12;
+    g.fillStyle = '#ff7a1a'; g.strokeStyle = '#fff'; g.lineWidth = 0.9 * S;
+    rr(g, sx(sxc - bw / 2), sy(syc - bh / 2), bw * S, bh * S, 3.2 * S); g.fill(); g.stroke();
+    g.beginPath();                                                                // 吹き出しのしっぽ（家のほうへ）
+    g.moveTo(sx(sxc - d * 10), sy(syc + bh / 2 - 0.5)); g.lineTo(sx(sxc - d * 17), sy(syc + bh / 2 + 5)); g.lineTo(sx(sxc - d * 5), sy(syc + bh / 2 - 0.5)); g.closePath(); g.fill(); g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '900 ' + 6 * S + 'px ' + FONT;
+    g.lineWidth = 1.3 * S; g.strokeStyle = '#8a2f00'; g.fillStyle = '#fff';
+    g.strokeText('おかし +' + CFG.houseGive, sx(sxc + 1.5), sy(syc + 0.4)); g.fillText('おかし +' + CFG.houseGive, sx(sxc + 1.5), sy(syc + 0.4));
+    circle(sxc - bw / 2 + 4.2, syc, 2, '#ff5fa0', '#fff', 0.4);
+    // 矢印（家のほうへ）
+    for (let i = 0; i < 3; i++) {
+      g.globalAlpha = clamp(0.25 + 0.75 * Math.max(0, Math.sin(nowT * 7 - i * 0.9)), 0, 1);
+      const ax = (left ? 40 : 60) - d * i * 5.5;
+      g.fillStyle = '#ffd23f'; g.beginPath();
+      g.moveTo(sx(ax - d * 3), sy(y + 2)); g.lineTo(sx(ax + d * 1.5), sy(y - 2)); g.lineTo(sx(ax + d * 1.5), sy(y + 6)); g.fill();
+    }
+    g.globalAlpha = 1;
   } else {
-    // 住人がドアから手を振る
-    circle(left ? 14 : 86, y + 3, 2, '#ffe0b8', null);
+    circle(left ? 14 : 86, y + 3, 2, '#ffe0b8', null);                          // 住人が手を振る
   }
 }
 
@@ -662,13 +691,108 @@ function drawChild(x, y) {
     else { g.strokeStyle = '#222'; g.lineWidth = 0.35 * S; g.beginPath(); g.arc(sx(x), sy(y + r * 0.35), r * 0.2 * S, 0.2, Math.PI - 0.2); g.stroke(); }
   }
   circle(x - r * 0.62, y + r * 0.25, r * 0.14, 'rgba(255,120,150,0.55)', null); circle(x + r * 0.62, y + r * 0.25, r * 0.14, 'rgba(255,120,150,0.55)', null);
-  // お菓子袋（減るほどしぼむ）
-  const bag = 1.5 + clamp(candy / 24, 0, 1) * 2.6, bx = x - r * 1.9, by = y + r * 0.5;
-  circle(bx, by, bag, '#e8681a', '#8a3d00', 0.4);
-  rect(bx - 0.5, by - bag - 1, 1, 1.4, '#ffd23f');
-  circle(bx - bag * 0.3, by - bag * 0.25, bag * 0.22, 'rgba(255,255,255,0.4)', null);
+  // カボチャのバケツ（持ち手つき）。お菓子が入っていて、減ると中身も減る
+  drawBucket(x - r * 2.1, y + r * 0.7, candy);
   g.globalAlpha = 1;
   if (Game.result === 'lose') drawPrank(x, y);
+}
+
+// ハロウィンのお菓子入れ（ジャック・オ・ランタンのバケツ）
+function drawBucket(bx, by, candy) {
+  const bw = 3.3, bh = 3;
+  const cols = ['#ff5fa0', '#ffd23f', '#6ad0ff', '#7ddc5a', '#c08aff', '#fff'];
+  g.strokeStyle = '#2a2a3a'; g.lineWidth = 0.45 * S; g.lineCap = 'round';           // 持ち手
+  g.beginPath(); g.arc(sx(bx), sy(by - bh * 0.6), bw * 0.95 * S, Math.PI, 0); g.stroke();
+  const n = candy <= 0 ? 0 : Math.min(7, 1 + Math.ceil(candy / 4));                  // 中身のお菓子
+  for (let i = 0; i < n; i++) circle(bx - bw * 0.7 + (i % 4) * bw * 0.47, by - bh * 0.7 - (i >= 4 ? 1.1 : 0), 0.95, cols[i % 6], null);
+  g.fillStyle = '#e8681a'; g.strokeStyle = '#8a3d00'; g.lineWidth = 0.4 * S;         // バケツ本体（かぼちゃ色）
+  g.beginPath(); g.moveTo(sx(bx - bw), sy(by - bh * 0.7)); g.lineTo(sx(bx + bw), sy(by - bh * 0.7));
+  g.lineTo(sx(bx + bw * 0.75), sy(by + bh)); g.lineTo(sx(bx - bw * 0.75), sy(by + bh)); g.closePath(); g.fill(); g.stroke();
+  rect(bx - bw - 0.2, by - bh * 0.85, bw * 2 + 0.4, 0.9, '#c4560f');                // ふち
+  g.fillStyle = '#3a1500';                                                           // ジャック・オ・ランタンの顔
+  g.beginPath(); g.moveTo(sx(bx - bw * 0.55), sy(by - 0.2)); g.lineTo(sx(bx - bw * 0.15), sy(by - 0.2)); g.lineTo(sx(bx - bw * 0.35), sy(by - 1)); g.fill();
+  g.beginPath(); g.moveTo(sx(bx + bw * 0.55), sy(by - 0.2)); g.lineTo(sx(bx + bw * 0.15), sy(by - 0.2)); g.lineTo(sx(bx + bw * 0.35), sy(by - 1)); g.fill();
+  rect(bx - bw * 0.4, by + 0.7, bw * 0.8, 0.6, '#3a1500');
+}
+
+// ---------- 画面の上の表示 ----------
+let meterV = CFG.candy0, meterFlash = 0, meterFlashCol = '#fff', prevCandy = CFG.candy0;
+const METER_MAX = 20;
+
+// お菓子メーター：キャラの頭上に浮かぶバー（飴のアイコン＋残量バー＋数）。減ると縮み、少ないと赤く点滅
+function drawCandyMeter(cx, low) {
+  const C = CFG;
+  if (Game.candy > prevCandy) { meterFlash = 0.35; meterFlashCol = '#fff6a0'; }
+  else if (Game.candy < prevCandy && Game.mode === 'play') { meterFlash = Game.candy < prevCandy - 1 ? 0.4 : 0.12; meterFlashCol = '#ff8080'; }
+  prevCandy = Game.candy;
+  meterV += (Game.candy - meterV) * 0.25;
+  meterFlash = Math.max(0, meterFlash - 1 / 60);
+  const lvl = meterV / METER_MAX;
+  const mid = clamp(cx, 22, 78) + (low && Game.mode === 'play' ? Math.sin(nowT * 40) * 0.5 : 0);
+  const W = 38, H = 7.2, x0 = mid - W / 2, y0 = C.childY - 22;
+  const col = Game.candy <= 3 ? '#ff5a5a' : Game.candy <= 7 ? '#ffd23f' : '#7ddc5a';
+  // 土台
+  g.fillStyle = 'rgba(26,18,54,0.78)'; rr(g, sx(x0), sy(y0), W * S, H * S, H / 2 * S); g.fill();
+  g.strokeStyle = low ? `rgba(255,90,90,${0.6 + 0.4 * Math.sin(nowT * 12)})` : 'rgba(255,255,255,0.35)'; g.lineWidth = 0.6 * S; g.stroke();
+  // 残量バー
+  const bx0 = x0 + 9.5, bw = 20, by0 = y0 + 1.9, bh = H - 3.8;
+  g.fillStyle = 'rgba(255,255,255,0.15)'; rr(g, sx(bx0), sy(by0), bw * S, bh * S, bh / 2 * S); g.fill();
+  const fw = Math.max(bh, bw * clamp(lvl, 0, 1));
+  if (Game.candy > 0) { g.fillStyle = col; rr(g, sx(bx0), sy(by0), fw * S, bh * S, bh / 2 * S); g.fill(); }
+  if (meterFlash > 0) { g.globalAlpha = meterFlash * 2; g.fillStyle = meterFlashCol; rr(g, sx(bx0), sy(by0), bw * S, bh * S, bh / 2 * S); g.fill(); g.globalAlpha = 1; }
+  g.fillStyle = 'rgba(26,18,54,0.7)';                                            // 目盛り（5 個ごと）
+  for (let i = 1; i < 4; i++) g.fillRect(sx(bx0 + bw * i / 4) - 0.2 * S, sy(by0), 0.4 * S, bh * S);
+  // 飴のアイコン（左）
+  const ix = x0 + 4.4, iy = y0 + H / 2;
+  g.fillStyle = '#ff5fa0';
+  g.beginPath(); g.moveTo(sx(ix - 3.6), sy(iy - 1.8)); g.lineTo(sx(ix - 1.2), sy(iy)); g.lineTo(sx(ix - 3.6), sy(iy + 1.8)); g.fill();
+  g.beginPath(); g.moveTo(sx(ix + 3.6), sy(iy - 1.8)); g.lineTo(sx(ix + 1.2), sy(iy)); g.lineTo(sx(ix + 3.6), sy(iy + 1.8)); g.fill();
+  circle(ix, iy, 2.1, '#ff8ec0', '#fff', 0.35);
+  // 数（右）
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '900 ' + 5.2 * S + 'px ' + FONT;
+  g.lineWidth = 1.1 * S; g.strokeStyle = '#2a1650'; g.fillStyle = low ? '#ff8a8a' : '#fff';
+  const tx = x0 + W - 4.6, ty = y0 + H / 2 + 0.3;
+  g.strokeText(Game.candy, sx(tx), sy(ty)); g.fillText(Game.candy, sx(tx), sy(ty));
+  if (low && Game.mode === 'play') {
+    g.globalAlpha = 0.6 + 0.4 * Math.sin(nowT * 12); g.font = '900 ' + 4.4 * S + 'px ' + FONT;
+    g.lineWidth = 1 * S; g.fillStyle = '#ff6b6b';
+    g.strokeText('あぶない！', sx(mid), sy(y0 - 3.4)); g.fillText('あぶない！', sx(mid), sy(y0 - 3.4));
+    g.globalAlpha = 1;
+  }
+}
+
+// 夜 → 朝のタイムライン：左の月（21:00）から右の朝日（6:00）へ。印の丸は時計の文字盤で、いまの時刻と進みを示す
+function drawTimeline() {
+  const p = Game.p(), ck = clockOf(Game.t), day = p > 0.78;
+  const bx0 = 26, bw = 48, by = 15.5, bh = 3.4;
+  g.fillStyle = 'rgba(26,18,54,0.62)'; rr(g, sx(9), sy(2), 82 * S, 24 * S, 6 * S); g.fill();
+  // バー（夜の紫 → 朝のオレンジ）
+  const grad = g.createLinearGradient(sx(bx0), 0, sx(bx0 + bw), 0);
+  grad.addColorStop(0, '#5b4bb5'); grad.addColorStop(0.7, '#b05a9a'); grad.addColorStop(1, '#ffb347');
+  g.fillStyle = 'rgba(255,255,255,0.16)'; rr(g, sx(bx0), sy(by), bw * S, bh * S, bh / 2 * S); g.fill();
+  g.fillStyle = grad; rr(g, sx(bx0), sy(by), Math.max(bh, bw * p) * S, bh * S, bh / 2 * S); g.fill();
+  // 左：月と 21:00
+  circle(15, 14.6, 3.6, '#fff6c8', null); circle(16.5, 13.6, 3, '#2d2252', null);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#d9c8ff'; g.font = '900 ' + 3.6 * S + 'px ' + FONT;
+  g.fillText('21:00', sx(15), sy(21.6));
+  // 右：朝日と「朝 6:00」（ここまで生き延びればゴール）
+  const sxr = 85, syr = 14.6;
+  g.strokeStyle = '#ffb347'; g.lineWidth = 0.6 * S;
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + nowT * 0.5; g.beginPath(); g.moveTo(sx(sxr + Math.cos(a) * 4.6), sy(syr + Math.sin(a) * 4.6)); g.lineTo(sx(sxr + Math.cos(a) * 6.2), sy(syr + Math.sin(a) * 6.2)); g.stroke(); }
+  circle(sxr, syr, 3.6, '#ffb347', '#fff', 0.5);
+  g.fillStyle = '#ffd9a0'; g.fillText('朝 6:00', sx(85), sy(21.6));
+  // 印（時計の文字盤）：いまの時刻
+  const mx = bx0 + bw * p, my = by + bh / 2;
+  circle(mx, my, 4.6, '#fff', '#2a1650', 0.8);
+  const hAng = ((ck.h % 12) + ck.m / 60) * Math.PI / 6 - Math.PI / 2, mAng = ck.m * Math.PI / 30 - Math.PI / 2;
+  g.strokeStyle = '#2a1650'; g.lineCap = 'round';
+  g.lineWidth = 0.7 * S; g.beginPath(); g.moveTo(sx(mx), sy(my)); g.lineTo(sx(mx + Math.cos(hAng) * 2.3), sy(my + Math.sin(hAng) * 2.3)); g.stroke();
+  g.lineWidth = 0.45 * S; g.beginPath(); g.moveTo(sx(mx), sy(my)); g.lineTo(sx(mx + Math.cos(mAng) * 3.3), sy(my + Math.sin(mAng) * 3.3)); g.stroke();
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; circle(mx + Math.cos(a) * 3.9, my + Math.sin(a) * 3.9, 0.22, '#8a78c8', null); }
+  // 印の上に、いまの時刻の数字
+  g.font = '900 ' + 6.2 * S + 'px ' + FONT; g.lineWidth = 1.3 * S; g.strokeStyle = '#2a1650'; g.fillStyle = '#fff';
+  g.strokeText(ck.text, sx(clamp(mx, 40, 60)), sy(8.4)); g.fillText(ck.text, sx(clamp(mx, 40, 60)), sy(8.4));
+  g.textAlign = 'center';
 }
 
 function drawFrog(x, y) {
@@ -746,25 +870,9 @@ function render() {
     g.fillStyle = vg; g.fillRect(0, 0, cv.width, cv.height);
   }
 
-  // お菓子の数（袋と顔の上）
-  const low = Game.candy <= 3;
-  const shake = low && Game.mode === 'play' ? Math.sin(nowT * 40) * 0.6 : 0;
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '900 ' + (low ? 12 : 10) * S + 'px ' + FONT;
-  g.lineWidth = 1.4 * S; g.strokeStyle = '#2a1650';
-  g.fillStyle = low ? '#ff6b6b' : '#ffd23f';
-  const nx = sx(Game.x + shake), ny = sy(C.childY - 11);
-  if (Game.mode !== 'title') { g.strokeText(Game.candy, nx, ny); g.fillText(Game.candy, nx, ny); }
-
-  // 時計
-  const ck = clockOf(Game.t).text, day = Game.p() > 0.78;
-  g.font = '900 ' + 7 * S + 'px ' + FONT;
-  const tw = g.measureText(ck).width + 12 * S, th = 11 * S, tx = sx(50) - tw / 2, ty = sy(5);
-  g.fillStyle = 'rgba(26,18,54,0.6)'; rr(g, tx, ty, tw, th, th / 2); g.fill();
-  g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(ck, tx + 9 * S, ty + th / 2 + 0.3 * S);
-  circle(50 - tw / S / 2 + 4.2, 10.5, 2.2, day ? '#ffb347' : '#fff6c8', null);
-  if (!day) circle(50 - tw / S / 2 + 5.1, 10, 1.9, 'rgb(40,30,80)', null);
-  g.textAlign = 'center';
+  // お菓子メーター（キャラの頭上）と、夜 → 朝のタイムライン（画面の上）
+  if (Game.mode !== 'title') drawCandyMeter(Game.x, Game.candy <= 3);
+  drawTimeline();
 
   // ポップアップ
   for (const q of popups) {
@@ -914,7 +1022,7 @@ function bindUI() {
 function retry() {
   Game.reset();
   shownResult = false;
-  popups.length = 0; parts.length = 0; munchT = 0;
+  popups.length = 0; parts.length = 0; munchT = 0; meterV = CFG.candy0; prevCandy = CFG.candy0; meterFlash = 0;
   $('result').classList.remove('show', 'wait');
   $('title').classList.remove('hide');
   Game.begin();   // 「もう一回」は前置きなしですぐ走る
