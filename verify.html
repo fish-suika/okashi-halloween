@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>お菓子ゲーム 検証</title>
+<style>body{font:16px sans-serif;padding:16px}.ok{color:#080}.ng{color:#c00;font-weight:bold}.info{color:#555}pre{background:#f4f4f4;padding:8px}</style>
+</head><body><h1>お菓子を食べ続けないと死ぬゲーム 検証</h1><div id="out"></div>
+<script>
+// ===== 調整用の数値（遊びながらここを触る）=====
+// 論理座標：幅 100 × 高さ 177.8（9:16）。道は x 8〜92。子どもは画面の下 1/4（childY）に固定で、世界のほうが下へ流れる。
+const CFG = {
+  h: 1 / 60,          // 検証のときの 1 コマ
+  dur: 90,            // 21:00 → 6:00 の長さ（秒）
+  W: 100, H: 177.8,
+  roadL: 8, roadR: 92,
+  childY: 135,        // 子どもの画面上の y
+  childR: 3.2,
+  speed0: 36, speed1: 46,   // 走る速さ（単位/秒）。夜が深まると上がる
+  candy0: 10,         // 最初のお菓子の数
+  eat0: 1.0, eat1: 0.6,     // お菓子を 1 個食べる間隔（秒）。夜が深まると短くなる
+  candyR: 3.2, pumpR: 5.2, ghostR: 4.6,
+  pumpLoss: 3, ghostLoss: 3,
+  inv: 1.0,           // 取られた後の無敵（秒）
+  stun: 0.5,          // カボチャでよろける時間
+  stunSlow: 0.55,     // よろけている間の速さの割合
+  ghostChase: 9,      // おばけが子どもへ寄る横の速さ
+  ghostDrop: 7,       // おばけが世界の中で子どもへ近づく速さ
+  ghostWake: 125,     // 画面の上からこの距離に入ったら動き出す
+  candyKeep: 0.47,     // 並べるお菓子のうち実際に置く割合（量の調整）
+  ghostBase: 0.3, ghostGrow: 0.7,   // 区画ごとに おばけが加わる確率（最初 + 夜が深まるほど）
+  segLen: 45,         // 区画の長さ
+  ahead: 200,         // どこまで先に並べておくか
+  keySpeed: 70,       // キーで動く速さ（単位/秒）
+  dragGain: 1.25,     // 指の動いた量 → 子どもの動き
+  chainTime: 0.8      // この間隔以内に拾うと連続
+};
+// ===== ゲームのロジック（画面を使わない）=====
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 時刻の表示（21:00 → 6:00）
+function clockOf(t) {
+  const m = Math.floor(clamp(t / CFG.dur, 0, 1) * 9 * 60);
+  const h = (21 + Math.floor(m / 60)) % 24;
+  return { h, m: m % 60, text: h + ':' + String(m % 60).padStart(2, '0') };
+}
+
+const Game = {
+  mode: 'title',          // title → play → over
+  result: '', cause: '',  // result: 'win' | 'lose'、cause: 最後にお菓子を取った相手（'eat' 'ghost' 'pumpkin'）
+  t: 0, dist: 0, seed: 1, rand: null,
+  x: 50, keyDir: 0,
+  candy: 0, eaten: 0, picked: 0, stolen: 0, eatT: 0,
+  inv: 0, stun: 0, chain: 0, chainT: 0,
+  lastHit: 'eat',
+  objs: [], nextSeg: 0, lastGap: 50, noSpawn: false,
+  events: [],
+
+  reset(seed) {
+    this.seed = seed == null ? (Date.now() & 0xffff) : seed;
+    this.rand = mulberry32(this.seed);
+    this.mode = 'title'; this.result = ''; this.cause = '';
+    this.t = 0; this.dist = 0;
+    this.x = 50; this.keyDir = 0;
+    this.candy = CFG.candy0; this.eaten = 0; this.picked = 0; this.stolen = 0; this.eatT = 0;
+    this.inv = 0; this.stun = 0; this.chain = 0; this.chainT = 99;
+    this.lastHit = 'eat';
+    this.objs = []; this.nextSeg = 30; this.lastGap = 50; this.noSpawn = false;
+    this.events = [];
+  },
+
+  begin() {
+    if (this.mode !== 'title') return;
+    this.mode = 'play';
+    this.events.push({ type: 'start' });
+  },
+
+  p() { return clamp(this.t / CFG.dur, 0, 1); },
+  speed() { return lerp(CFG.speed0, CFG.speed1, this.p()) * (this.stun > 0 ? CFG.stunSlow : 1); },
+  eatInterval() { return lerp(CFG.eat0, CFG.eat1, this.p()); },
+
+  // 指（またはキー）で左右に動かす。dx は論理単位
+  move(dx) {
+    if (this.mode !== 'play') return;
+    this.x = clamp(this.x + dx, CFG.roadL + CFG.childR, CFG.roadR - CFG.childR);
+  },
+
+  add(k, x, y, r) {
+    if (k === 'candy' && this.rand() > CFG.candyKeep) return null;   // お菓子の量の調整
+    const o = { k, x, y, r, dead: false, ph: this.rand() * 6.28 };
+    this.objs.push(o);
+    return o;
+  },
+
+  // 区画を並べる。obstacles は必ず通れる幅（ゲート 約15、散らばり 約15）を残す
+  spawnSeg(y0) {
+    const r = this.rand, p = this.p();
+    const rnd = (a, b) => a + (b - a) * r();
+    let kind;
+    if (y0 < 150) kind = r() < 0.5 ? 'line' : 'wave';   // 最初は穏やか
+    else {
+      const w = [['line', 3], ['wave', 3], ['gate', 1.3 + p * 2], ['bait', 1 + p * 2], ['scatter', 1.2 + p]];
+      let sum = 0; for (const a of w) sum += a[1];
+      let v = r() * sum; kind = w[0][0];
+      for (const a of w) { if (v < a[1]) { kind = a[0]; break; } v -= a[1]; }
+    }
+    const C = CFG;
+    if (kind === 'line') {
+      const cx = rnd(18, 82);
+      for (let i = 0; i < 6; i++) this.add('candy', cx, y0 + 8 + i * 5.5, C.candyR);
+    } else if (kind === 'wave') {
+      const cx = rnd(32, 68);
+      for (let i = 0; i < 8; i++) this.add('candy', cx + 18 * Math.sin(i * 0.85), y0 + 6 + i * 4.5, C.candyR);
+    } else if (kind === 'gate') {
+      const g = clamp(this.lastGap + rnd(-35, 35), 24, 76);
+      this.lastGap = g;
+      for (let px = 12; px <= 88; px += 9) if (Math.abs(px - g) >= 16) this.add('pumpkin', px, y0 + 22, C.pumpR);
+      for (let i = 0; i < 5; i++) this.add('candy', g, y0 + 10 + i * 6, C.candyR);
+    } else if (kind === 'bait') {
+      const gx = r() < 0.5 ? 24 : 76, gy = y0 + 28;
+      this.add('ghost', gx, gy, C.ghostR);
+      for (let i = 0; i < 5; i++) {   // おばけのそばのお菓子（危ない）
+        const a = -0.9 + i * 0.45;
+        this.add('candy', gx + (gx < 50 ? 1 : -1) * 11 * Math.cos(a), gy + 11 * Math.sin(a), C.candyR);
+      }
+      const sx = 100 - gx;            // 反対側の安全なお菓子
+      for (let i = 0; i < 3; i++) this.add('candy', sx, y0 + 8 + i * 6, C.candyR);
+    } else if (kind === 'scatter') {
+      const xs = [rnd(14, 24), rnd(44, 56), rnd(76, 86)];
+      xs.forEach((px, i) => this.add('pumpkin', px, y0 + 16 + (i % 2) * 10 + rnd(0, 4), C.pumpR));
+      for (let i = 0; i < 6; i++) {
+        const gx = i % 2 ? 66 : 34;
+        this.add('candy', gx + rnd(-3, 3), y0 + 12 + (i >> 1) * 8, C.candyR);
+      }
+    }
+    // 夜が深まるほど、おばけが加わる
+    if (kind !== 'bait') {
+      const n = (r() < C.ghostBase + p * C.ghostGrow ? 1 : 0) + (p > 0.4 && r() < 0.6 ? 1 : 0);
+      for (let i = 0; i < n; i++) this.add('ghost', rnd(20, 80), y0 + 36 + i * 4, C.ghostR);
+    }
+  },
+
+  loseCandy(n, by) {
+    const m = Math.min(this.candy, n);
+    this.candy -= m; this.stolen += m;
+    this.lastHit = by;
+    if (this.candy <= 0) this.finish('lose', by);
+    return m;
+  },
+
+  finish(result, cause) {
+    if (this.mode !== 'play') return;
+    this.mode = 'over'; this.result = result; this.cause = cause || '';
+    this.events.push({ type: 'end', result, cause: this.cause });
+  },
+
+  step(dt) {
+    if (this.mode !== 'play') return;
+    const C = CFG;
+    this.t += dt;
+    if (this.t >= C.dur) { this.t = C.dur; this.finish('win', ''); return; }
+    if (this.keyDir) this.move(this.keyDir * C.keySpeed * dt);
+    this.dist += this.speed() * dt;
+    this.inv = Math.max(0, this.inv - dt);
+    this.stun = Math.max(0, this.stun - dt);
+    this.chainT += dt;
+
+    if (!this.noSpawn) while (this.nextSeg < this.dist + C.ahead) { this.spawnSeg(this.nextSeg); this.nextSeg += C.segLen; }
+
+    // 勝手に食べる
+    this.eatT += dt;
+    const iv = this.eatInterval();
+    while (this.eatT >= iv && this.mode === 'play') {
+      this.eatT -= iv;
+      this.candy--; this.eaten++;
+      this.events.push({ type: 'eat' });
+      if (this.candy <= 0) { this.candy = 0; this.lastHit = 'eat'; this.finish('lose', 'eat'); }
+    }
+    if (this.mode !== 'play') return;
+
+    // 物の動きと当たり
+    for (const o of this.objs) {
+      if (o.dead) continue;
+      if (o.k === 'ghost') {
+        if (o.flee) { o.y += 30 * dt; o.fade = (o.fade || 0) + dt; if (o.fade > 0.5) o.dead = true; continue; }
+        if (o.y - this.dist < C.ghostWake) {
+          const vx = clamp(this.x - o.x, -1, 1) * C.ghostChase + Math.sin(this.t * 2.2 + o.ph) * 9;
+          o.x = clamp(o.x + vx * dt, C.roadL + 3, C.roadR - 3);
+          o.y -= C.ghostDrop * dt;
+        }
+      }
+      if (o.hit) continue;
+      const dx = this.x - o.x, dy = this.dist - o.y, rr = C.childR + o.r;
+      if (dx * dx + dy * dy >= rr * rr) continue;
+      if (o.k === 'candy') {
+        o.dead = true; this.candy++; this.picked++;
+        this.chain = this.chainT <= C.chainTime ? this.chain + 1 : 1;
+        this.chainT = 0;
+        this.events.push({ type: 'pick', chain: this.chain, x: o.x, y: o.y });
+      } else if (this.inv <= 0) {
+        if (o.k === 'pumpkin') {
+          o.hit = true;
+          this.inv = C.inv; this.stun = C.stun;
+          const m = this.loseCandy(C.pumpLoss, 'pumpkin');
+          this.events.push({ type: 'hit', k: 'pumpkin', n: m, x: o.x, y: o.y });
+        } else if (o.k === 'ghost') {
+          o.flee = true;
+          this.inv = C.inv;
+          const m = this.loseCandy(C.ghostLoss, 'ghost');
+          this.events.push({ type: 'hit', k: 'ghost', n: m, x: o.x, y: o.y });
+        }
+        if (this.mode !== 'play') return;
+      }
+    }
+    // 後ろに過ぎた物を捨てる
+    const lim = this.dist - 40;
+    if (this.objs.length && this.objs.some(o => o.y < lim || o.dead)) this.objs = this.objs.filter(o => !o.dead && o.y >= lim);
+  }
+};
+// ===== 自動テスト（画面なし。ボットで夜を走らせる）=====
+(function () {
+  const out = document.getElementById('out');
+  let fail = 0;
+  function check(name, cond, note) {
+    if (!cond) fail++;
+    const p = document.createElement('div');
+    p.className = cond ? 'ok' : 'ng';
+    p.textContent = (cond ? 'OK  ' : 'NG  ') + name + (note ? '  [' + note + ']' : '');
+    out.appendChild(p);
+  }
+  function info(text) {
+    const p = document.createElement('div');
+    p.className = 'info'; p.textContent = '    ' + text;
+    out.appendChild(p);
+  }
+  const H = CFG.h;
+  function fresh(seed) { Game.reset(seed || 1); Game.begin(); Game.events.length = 0; }
+  function clearWorld() { Game.objs = []; Game.noSpawn = true; }
+  function put(k, x, y, r) { Game.objs.push({ k, x, y, r, dead: false, ph: 0 }); }
+  function adv(sec) { for (let i = 0; i < Math.round(sec / H); i++) Game.step(H); }
+
+  // --- お菓子の減り方 ---
+  fresh(); clearWorld();
+  adv(5);
+  check('何も拾わないと 5 秒で約 4〜5 個減る（最初は 約1秒に1個）', Game.candy >= 4 && Game.candy <= 6, 'candy=' + Game.candy);
+  fresh(); clearWorld();
+  adv(9.9);
+  check('何も拾わず 10 個を食べきると終わる（イタズラ側）', Game.mode === 'over' && Game.result === 'lose' && Game.cause === 'eat', 't=' + Game.t.toFixed(1) + ' cause=' + Game.cause);
+  // 夜が深まると減りが速い
+  fresh(); clearWorld(); Game.t = 80; Game.candy = 100; const c0 = Game.candy; const e0 = Game.eatT;
+  adv(5);
+  check('夜の終わりは 5 秒で約 8 個以上減る（0.6〜0.65 秒に 1 個）', c0 - Game.candy >= 7, '減った=' + (c0 - Game.candy));
+
+  // --- 拾う・取られる ---
+  fresh(); clearWorld();
+  put('candy', Game.x, Game.dist + 1, CFG.candyR);
+  const cBefore = Game.candy;
+  Game.step(H);
+  check('お菓子に触れると +1', Game.candy === cBefore + 1 && Game.picked === 1, 'candy=' + Game.candy);
+
+  fresh(); clearWorld();
+  put('ghost', Game.x, Game.dist + 1, CFG.ghostR);
+  Game.step(H);
+  check('おばけに触れると 3 個取られ、無敵になる', Game.candy === CFG.candy0 - 3 && Game.inv > 0 && Game.lastHit === 'ghost', 'candy=' + Game.candy);
+  const cAfter = Game.candy;
+  put('pumpkin', Game.x, Game.dist + 0.5, CFG.pumpR);
+  Game.step(H);
+  check('無敵の間は続けて取られない', Game.candy === cAfter, 'candy=' + Game.candy);
+
+  fresh(); clearWorld();
+  put('pumpkin', Game.x, Game.dist + 1, CFG.pumpR);
+  Game.step(H);
+  check('カボチャに触れると 3 個落とし、よろける', Game.candy === CFG.candy0 - 3 && Game.stun > 0 && Game.lastHit === 'pumpkin', 'candy=' + Game.candy);
+
+  fresh(); clearWorld(); Game.candy = 2;
+  put('ghost', Game.x, Game.dist + 1, CFG.ghostR);
+  Game.step(H);
+  check('足りないときに取られると 0 になって終わり、最後に取った相手が記録される', Game.mode === 'over' && Game.candy === 0 && Game.cause === 'ghost', 'cause=' + Game.cause);
+
+  // --- 夜明け ---
+  fresh(); clearWorld();
+  while (Game.mode === 'play') { Game.candy = 99; Game.step(H); }
+  check('90 秒で夜が明ける（生還）', Game.result === 'win' && Math.abs(Game.t - CFG.dur) < 0.01, 't=' + Game.t.toFixed(2));
+  check('時計は 21:00 → 6:00', clockOf(0).text === '21:00' && clockOf(CFG.dur).text === '6:00', clockOf(45).text);
+
+  // --- 通れない区画がない ---
+  let blocked = 0, rows = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    Game.reset(seed); Game.begin(); Game.t = 60;
+    for (let y = 150; y < 150 + 45 * 80; y += 45) Game.spawnSeg(y);
+    const pm = Game.objs.filter(o => o.k === 'pumpkin').sort((a, b) => a.y - b.y);
+    for (const a of pm) {
+      // a の高さに重なるカボチャを集めて、道の端から端まで通れる隙間があるか調べる
+      const near = pm.filter(b => Math.abs(b.y - a.y) < CFG.pumpR * 2 + CFG.childR * 2);
+      const iv = near.map(b => [b.x - b.r - CFG.childR, b.x + b.r + CFG.childR]).sort((p, q) => p[0] - q[0]);
+      let cur = CFG.roadL + CFG.childR, ok = false;
+      for (const [l, r] of iv) { if (l - cur > 0.5) { ok = true; break; } cur = Math.max(cur, r); }
+      if (!ok && CFG.roadR - CFG.childR - cur > 0.5) ok = true;
+      rows++; if (!ok) blocked++;
+    }
+  }
+  check('どの区画にも通れる幅がある（カボチャで道がふさがらない）', blocked === 0, rows + ' 件中 ふさがり ' + blocked);
+
+  // --- ボット ---
+  const MAXV = 90;
+  function hazardPen(x, dy0, dy1) {
+    let pen = 0;
+    for (const o of Game.objs) {
+      if (o.dead || o.hit || o.flee || (o.k !== 'pumpkin' && o.k !== 'ghost')) continue;
+      const dy = o.y - Game.dist;
+      if (dy < -3 || dy > dy1) continue;
+      const gap = Math.abs(o.x - x) - (o.r + CFG.childR);
+      if (gap < 5) pen += (5 - gap) * 10 + (dy < 15 ? 20 : 0);
+    }
+    return pen;
+  }
+  function targetCandy() {
+    let best = null, bd = 1e9;
+    for (const o of Game.objs) {
+      if (o.dead || o.k !== 'candy') continue;
+      const dy = o.y - Game.dist;
+      if (dy < 0 || dy > 45) continue;
+      if (dy < bd) { bd = dy; best = o; }
+    }
+    return best;
+  }
+  function botMove(kind) {
+    const cx = Game.x, xs = [];
+    for (let x = CFG.roadL + CFG.childR; x <= CFG.roadR - CFG.childR + 0.01; x += 2.4) xs.push(x);
+    let tx = cx;
+    if (kind !== 'dodger') { const c = targetCandy(); if (c) tx = c.x; else tx = 50; }
+    else tx = 50;
+    let bx = cx, bc = 1e9;
+    for (const x of xs) {
+      const cost = Math.abs(x - tx) + (kind === 'collector' ? 0 : hazardPen(x, 0, 40)) + Math.abs(x - cx) * 0.02;
+      if (cost < bc) { bc = cost; bx = x; }
+    }
+    Game.move(clamp(bx - cx, -MAXV * H, MAXV * H));
+  }
+  function runBot(kind, seed) {
+    fresh(seed);
+    let n = 0;
+    while (Game.mode === 'play' && n++ < 100 * 60) { botMove(kind); Game.step(H); }
+    return { win: Game.result === 'win', t: Game.t, cause: Game.cause, eaten: Game.eaten, picked: Game.picked, stolen: Game.stolen };
+  }
+  const SEEDS = 24;
+  const stats = {};
+  for (const kind of ['dodger', 'collector', 'both']) {
+    const rs = [];
+    for (let s = 1; s <= SEEDS; s++) rs.push(runBot(kind, s));
+    const wins = rs.filter(r => r.win).length;
+    const avg = rs.reduce((a, r) => a + r.t, 0) / rs.length;
+    stats[kind] = { wins, avg, rs };
+    info(kind + ': 生還 ' + wins + '/' + SEEDS + '、平均 ' + avg.toFixed(1) + ' 秒、拾い平均 ' + (rs.reduce((a, r) => a + r.picked, 0) / SEEDS).toFixed(0) + '、取られ平均 ' + (rs.reduce((a, r) => a + r.stolen, 0) / SEEDS).toFixed(0));
+  }
+  check('よけるだけのボットは朝まで持たない', stats.dodger.wins === 0, stats.dodger.wins + '/' + SEEDS);
+  check('拾うだけのボットは、拾いつつよけるボットより生還が少ない', stats.collector.wins < stats.both.wins, stats.collector.wins + ' < ' + stats.both.wins);
+  check('拾いつつよけるボットは多くが朝まで届く（生還 70% 以上）', stats.both.wins >= SEEDS * 0.7, stats.both.wins + '/' + SEEDS);
+
+  const sum = document.createElement('h2');
+  sum.textContent = fail === 0 ? '全部 OK' : fail + ' 件 NG';
+  sum.className = fail === 0 ? 'ok' : 'ng';
+  out.appendChild(sum);
+  window.__verifyFail = fail;
+})();
+</script>
+</body>
+</html>
