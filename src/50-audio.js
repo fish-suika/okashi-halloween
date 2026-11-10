@@ -29,6 +29,8 @@ const Snd = (() => {
     pick(chain) { tone(520 * Math.pow(1.0595, Math.min(chain, 12) * 2), 0.12, 'triangle', 0.5); },
     eat() { tone(180, 0.06, 'square', 0.12, 0.7); },
     hit() { tone(220, 0.28, 'sawtooth', 0.4, 0.4); },
+    house() { [660, 830, 990].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.5), i * 70)); },
+    witch() { tone(900, 0.5, 'sawtooth', 0.12, 0.35); },
     end(win) { if (win) { tone(660, 0.2, 'triangle', 0.5); setTimeout(() => tone(880, 0.3, 'triangle', 0.5), 160); } else tone(300, 0.6, 'sawtooth', 0.4, 0.3); }
   };
 })();

@@ -18,8 +18,9 @@ function clockOf(t) {
 }
 
 const Game = {
-  mode: 'title',          // title → play → over
-  result: '', cause: '',  // result: 'win' | 'lose'、cause: 最後にお菓子を取った相手（'eat' 'ghost' 'pumpkin'）
+  mode: 'title',          // title → play → end（夜明け／イタズラの演出）→ over（結果）
+  result: '', cause: '',  // result: 'win' | 'lose'、cause: お菓子を 0 にした相手（'eat' 'ghost' 'pumpkin' 'witch'）
+  endT: 0,
   t: 0, dist: 0, seed: 1, rand: null,
   x: 50, keyDir: 0,
   candy: 0, eaten: 0, picked: 0, stolen: 0, eatT: 0,
@@ -31,7 +32,7 @@ const Game = {
   reset(seed) {
     this.seed = seed == null ? (Date.now() & 0xffff) : seed;
     this.rand = mulberry32(this.seed);
-    this.mode = 'title'; this.result = ''; this.cause = '';
+    this.mode = 'title'; this.result = ''; this.cause = ''; this.endT = 0;
     this.t = 0; this.dist = 0;
     this.x = 50; this.keyDir = 0;
     this.candy = CFG.candy0; this.eaten = 0; this.picked = 0; this.stolen = 0; this.eatT = 0;
@@ -50,6 +51,13 @@ const Game = {
   p() { return clamp(this.t / CFG.dur, 0, 1); },
   speed() { return lerp(CFG.speed0, CFG.speed1, this.p()) * (this.stun > 0 ? CFG.stunSlow : 1); },
   eatInterval() { return lerp(CFG.eat0, CFG.eat1, this.p()); },
+  fat() { return clamp(this.eaten / CFG.fatFull, 0, 1); },   // 食べた数に合わせて太る（0〜1）
+  // 魔女が子どもの高さに来る時点での x（ボットや予告の目安）
+  witchAt(o) {
+    const dy = o.y - this.dist, sp = this.speed(), arr = Math.max(0, dy / sp);
+    const fly = o.launched ? arr : Math.max(0, arr - Math.max(0, (dy - CFG.witchLaunch) / sp));
+    return o.x + o.dir * CFG.witchSpeed * fly;
+  },
 
   // 指（またはキー）で左右に動かす。dx は論理単位
   move(dx) {
@@ -71,7 +79,8 @@ const Game = {
     let kind;
     if (y0 < 150) kind = r() < 0.5 ? 'line' : 'wave';   // 最初は穏やか
     else {
-      const w = [['line', 3], ['wave', 3], ['gate', 1.3 + p * 2], ['bait', 1 + p * 2], ['scatter', 1.2 + p]];
+      const w = [['line', 3], ['wave', 3], ['gate', 1.3 + p * 2], ['bait', 1 + p * 2], ['scatter', 1.2 + p], ['house', CFG.houseW],
+                 ['witch', p >= CFG.witchFrom ? CFG.witchW : 0]];
       let sum = 0; for (const a of w) sum += a[1];
       let v = r() * sum; kind = w[0][0];
       for (const a of w) { if (v < a[1]) { kind = a[0]; break; } v -= a[1]; }
@@ -105,8 +114,23 @@ const Game = {
         this.add('candy', gx + rnd(-3, 3), y0 + 12 + (i >> 1) * 8, C.candyR);
       }
     }
-    // 夜が深まるほど、おばけが加わる
-    if (kind !== 'bait') {
+    else if (kind === 'house') {
+      // 玄関の明かりがついた家（道の端）。そばにカボチャとおばけが寄りやすい
+      const left = r() < 0.5, hx = left ? 10 : 90, dir = left ? 1 : -1;
+      this.add('house', hx, y0 + 24, 6);
+      this.add('pumpkin', hx + dir * 15, y0 + 26, C.pumpR);
+      this.add('ghost', hx + dir * 28, y0 + 38, C.ghostR);
+      for (let i = 0; i < 3; i++) this.add('candy', 100 - hx, y0 + 12 + i * 7, C.candyR);
+    } else if (kind === 'witch') {
+      // 魔女のほうき：予告してから横から一直線に横切る
+      const dir = r() < 0.5 ? 1 : -1;
+      const w = this.add('witch', dir > 0 ? -10 : 110, y0 + 28, 6);
+      w.dir = dir; w.launched = false;
+      const cx = rnd(20, 80);
+      for (let i = 0; i < 5; i++) this.add('candy', cx, y0 + 4 + i * 4.5, C.candyR);   // 通り道の手前のお菓子
+    }
+    // 夜が深まるほど、おばけが加わる（朝が近づくと減る）
+    if (kind !== 'bait' && kind !== 'house' && p < C.ghostEnd) {
       const n = (r() < C.ghostBase + p * C.ghostGrow ? 1 : 0) + (p > 0.4 && r() < 0.6 ? 1 : 0);
       for (let i = 0; i < n; i++) this.add('ghost', rnd(20, 80), y0 + 36 + i * 4, C.ghostR);
     }
@@ -122,11 +146,24 @@ const Game = {
 
   finish(result, cause) {
     if (this.mode !== 'play') return;
-    this.mode = 'over'; this.result = result; this.cause = cause || '';
+    this.mode = 'end'; this.endT = 0; this.result = result; this.cause = cause || '';
+    if (result === 'win') for (const o of this.objs) if (o.k === 'ghost' || o.k === 'witch') { o.flee = true; o.fade = 0; }   // お化けが一斉に逃げていく
     this.events.push({ type: 'end', result, cause: this.cause });
   },
 
+  // 夜明け／イタズラの演出の間。終わったら結果へ
+  stepEnd(dt) {
+    this.endT += dt;
+    if (this.result === 'win') this.dist += lerp(CFG.speed1, 0, clamp(this.endT / 1.2, 0, 1)) * dt;   // 立ち止まる
+    for (const o of this.objs) if (o.flee) { o.y += 30 * dt; o.fade = (o.fade || 0) + dt; }
+    if (this.endT >= (this.result === 'win' ? CFG.endWin : CFG.endLose)) {
+      this.mode = 'over';
+      this.events.push({ type: 'over' });
+    }
+  },
+
   step(dt) {
+    if (this.mode === 'end') { this.stepEnd(dt); return; }
     if (this.mode !== 'play') return;
     const C = CFG;
     this.t += dt;
@@ -161,10 +198,20 @@ const Game = {
           o.y -= C.ghostDrop * dt;
         }
       }
-      if (o.hit) continue;
+      if (o.k === 'witch') {
+        if (o.flee) { o.fade = (o.fade || 0) + dt; if (o.fade > 0.5) o.dead = true; continue; }
+        if (!o.launched && o.y - this.dist < C.witchLaunch) { o.launched = true; this.events.push({ type: 'witch' }); }
+        if (o.launched) o.x += o.dir * C.witchSpeed * dt;
+        if (o.x < -25 || o.x > 125) { o.dead = true; continue; }
+        if (!o.launched) continue;
+      }
+      if (o.hit || o.used) continue;
       const dx = this.x - o.x, dy = this.dist - o.y, rr = C.childR + o.r;
       if (dx * dx + dy * dy >= rr * rr) continue;
-      if (o.k === 'candy') {
+      if (o.k === 'house') {
+        o.used = true; this.candy += C.houseGive; this.picked += C.houseGive;
+        this.events.push({ type: 'house', n: C.houseGive, x: o.x, y: o.y });
+      } else if (o.k === 'candy') {
         o.dead = true; this.candy++; this.picked++;
         this.chain = this.chainT <= C.chainTime ? this.chain + 1 : 1;
         this.chainT = 0;
@@ -180,6 +227,11 @@ const Game = {
           this.inv = C.inv;
           const m = this.loseCandy(C.ghostLoss, 'ghost');
           this.events.push({ type: 'hit', k: 'ghost', n: m, x: o.x, y: o.y });
+        } else if (o.k === 'witch') {
+          o.hit = true;
+          this.inv = C.inv;
+          const m = this.loseCandy(C.witchLoss, 'witch');
+          this.events.push({ type: 'hit', k: 'witch', n: m, x: o.x, y: o.y });
         }
         if (this.mode !== 'play') return;
       }

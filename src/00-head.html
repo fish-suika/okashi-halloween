@@ -31,7 +31,7 @@ body{display:flex;align-items:center;justify-content:center}
 @keyframes blink{50%{transform:scale(1.07)}}
 
 /* 結果（戦利品の袋） */
-#result{position:absolute;left:7cqw;right:7cqw;top:38cqw;z-index:30;padding:5cqw 5.5cqw;
+#result{position:absolute;left:7cqw;right:7cqw;top:22cqw;z-index:30;padding:5cqw 5.5cqw;
   background:#2a1650ee;border:.8cqw solid #ffb347;border-radius:4cqw;
   box-shadow:0 2cqw 0 #00000055,0 3cqw 6cqw #0008;
   display:none;flex-direction:column;align-items:stretch;gap:2cqw;text-align:center;pointer-events:auto}
@@ -68,6 +68,7 @@ body{display:flex;align-items:center;justify-content:center}
     <div class="ln"><span>食べた数</span><b><span id="rEaten">0</span> 個</b></div>
     <div class="ln"><span>拾った数</span><b><span id="rPicked">0</span> 個</b></div>
     <div class="ln"><span>取られた数</span><b><span id="rStolen">0</span> 個</b></div>
+    <div class="ln"><span>のこったお菓子</span><b><span id="rLeft">0</span> 個</b></div>
     <div id="rBest"></div>
     <div class="row">
       <button id="retry" class="btn">もう一回</button>

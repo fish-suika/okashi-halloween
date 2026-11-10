@@ -26,7 +26,7 @@
   check('何も拾わないと 5 秒で約 4〜5 個減る（最初は 約1秒に1個）', Game.candy >= 4 && Game.candy <= 6, 'candy=' + Game.candy);
   fresh(); clearWorld();
   adv(9.9);
-  check('何も拾わず 10 個を食べきると終わる（イタズラ側）', Game.mode === 'over' && Game.result === 'lose' && Game.cause === 'eat', 't=' + Game.t.toFixed(1) + ' cause=' + Game.cause);
+  check('何も拾わず 10 個を食べきると終わる（イタズラ側）', Game.mode !== 'play' && Game.result === 'lose' && Game.cause === 'eat', 't=' + Game.t.toFixed(1) + ' cause=' + Game.cause);
   // 夜が深まると減りが速い
   fresh(); clearWorld(); Game.t = 80; Game.candy = 100; const c0 = Game.candy; const e0 = Game.eatT;
   adv(5);
@@ -56,7 +56,66 @@
   fresh(); clearWorld(); Game.candy = 2;
   put('ghost', Game.x, Game.dist + 1, CFG.ghostR);
   Game.step(H);
-  check('足りないときに取られると 0 になって終わり、最後に取った相手が記録される', Game.mode === 'over' && Game.candy === 0 && Game.cause === 'ghost', 'cause=' + Game.cause);
+  check('足りないときに取られると 0 になって終わり、最後に取った相手が記録される', Game.mode !== 'play' && Game.candy === 0 && Game.cause === 'ghost', 'cause=' + Game.cause);
+
+
+  // --- 玄関・魔女 ---
+  fresh(); clearWorld();
+  put('house', Game.x, Game.dist + 1, 6);
+  Game.step(H);
+  const afterHouse = Game.candy;
+  adv(0.05);
+  check('玄関の前を通ると +8（1 回だけ）', afterHouse === CFG.candy0 + CFG.houseGive && Game.candy >= afterHouse - 1, 'candy=' + afterHouse);
+  fresh(); clearWorld();
+  { const w = { k: 'witch', x: Game.x, y: Game.dist + 1, r: 6, dead: false, ph: 0, dir: 1, launched: true }; Game.objs.push(w); }
+  Game.step(H);
+  check('魔女に触れると 5 個さらわれる', Game.candy === CFG.candy0 - 5 && Game.lastHit === 'witch', 'candy=' + Game.candy);
+  {
+    let early = 0, late = 0, gEarly = 0, gLate = 0, houses = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      Game.reset(seed); Game.begin(); Game.t = 10;
+      for (let y = 150; y < 150 + 45 * 40; y += 45) Game.spawnSeg(y);
+      early += Game.objs.filter(o => o.k === 'witch').length; gEarly += Game.objs.filter(o => o.k === 'ghost').length;
+      houses += Game.objs.filter(o => o.k === 'house').length;
+      Game.reset(seed); Game.begin(); Game.t = 72;
+      for (let y = 150; y < 150 + 45 * 40; y += 45) Game.spawnSeg(y);
+      late += Game.objs.filter(o => o.k === 'witch').length; gLate += Game.objs.filter(o => o.k === 'ghost').length;
+    }
+    check('魔女は夜中（約 2 時）から出る', early === 0 && late > 0, '序盤=' + early + ' 後半=' + late);
+    check('玄関の家が出る', houses > 0, houses + ' 軒');
+    check('夜が深まるほどおばけが増える', gLate > gEarly * 1.3, '序盤=' + gEarly + ' 後半=' + gLate);
+  }
+  {
+    Game.reset(1); Game.begin();
+    const a = Game.eatInterval(), sp0 = Game.speed(); Game.t = CFG.dur * 0.99;
+    check('夜が深まるほど食べるペースと走る速さが上がる', Game.eatInterval() < a * 0.7 && Game.speed() > sp0, a.toFixed(2) + ' → ' + Game.eatInterval().toFixed(2));
+  }
+  // お菓子のない時間が続きすぎない
+  {
+    let worst = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      Game.reset(seed); Game.begin(); Game.t = 50;
+      for (let y = 30; y < 30 + 45 * 80; y += 45) Game.spawnSeg(y);
+      const ys = Game.objs.filter(o => o.k === 'candy' || o.k === 'house').map(o => o.y).sort((a, b) => a - b);
+      for (let i = 1; i < ys.length; i++) worst = Math.max(worst, ys[i] - ys[i - 1]);
+    }
+    check('お菓子のない道が続きすぎない（最大 ' + (CFG.speed1 * 3 | 0) + ' 以内 ≒ 3 秒）', worst <= CFG.speed1 * 3, '最大=' + worst.toFixed(0));
+  }
+  // --- 終わり方 ---
+  for (const [cause, mk] of [['ghost', () => put('ghost', Game.x, Game.dist + 1, CFG.ghostR)], ['pumpkin', () => put('pumpkin', Game.x, Game.dist + 1, CFG.pumpR)],
+      ['witch', () => Game.objs.push({ k: 'witch', x: Game.x, y: Game.dist + 1, r: 6, dead: false, ph: 0, dir: 1, launched: true })]]) {
+    fresh(); clearWorld(); Game.candy = 1; mk(); Game.step(H);
+    const okEnd = Game.mode === 'end' && Game.result === 'lose' && Game.cause === cause;
+    adv(CFG.endLose + 0.1);
+    check('最後に取った相手が「' + cause + '」ならイタズラもそれ（演出のあと結果へ）', okEnd && Game.mode === 'over', 'cause=' + Game.cause);
+  }
+  fresh(); clearWorld(); Game.candy = 1; adv(1.2);
+  check('自分で食べきると「eat」のイタズラ', Game.cause === 'eat' && Game.mode !== 'play', 'cause=' + Game.cause);
+  fresh(); clearWorld(); Game.eaten = 100;
+  while (Game.mode === 'play') { Game.candy = 99; Game.step(H); }
+  const fatAtEnd = Game.fat();
+  adv(CFG.endWin + 0.1);
+  check('生還すると夜明けの演出のあと結果へ。食べた数でまんまる', Game.result === 'win' && Game.mode === 'over' && fatAtEnd > 0.8, 'fat=' + fatAtEnd.toFixed(2));
 
   // --- 夜明け ---
   fresh(); clearWorld();
@@ -87,10 +146,11 @@
   function hazardPen(x, dy0, dy1) {
     let pen = 0;
     for (const o of Game.objs) {
-      if (o.dead || o.hit || o.flee || (o.k !== 'pumpkin' && o.k !== 'ghost')) continue;
+      if (o.dead || o.hit || o.flee || (o.k !== 'pumpkin' && o.k !== 'ghost' && o.k !== 'witch')) continue;
       const dy = o.y - Game.dist;
-      if (dy < -3 || dy > dy1) continue;
-      const gap = Math.abs(o.x - x) - (o.r + CFG.childR);
+      if (dy < -3 || dy > (o.k === 'witch' ? 90 : dy1)) continue;
+      const ox = o.k === 'witch' ? Game.witchAt(o) : o.x;
+      const gap = Math.abs(ox - x) - (o.r + CFG.childR);
       if (gap < 5) pen += (5 - gap) * 10 + (dy < 15 ? 20 : 0);
     }
     return pen;
@@ -98,10 +158,11 @@
   function targetCandy() {
     let best = null, bd = 1e9;
     for (const o of Game.objs) {
-      if (o.dead || o.k !== 'candy') continue;
+      if (o.dead || o.used || (o.k !== 'candy' && o.k !== 'house')) continue;
       const dy = o.y - Game.dist;
       if (dy < 0 || dy > 45) continue;
-      if (dy < bd) { bd = dy; best = o; }
+      const key = o.k === 'house' ? dy - 40 : dy;   // 玄関は優先
+      if (key < bd) { bd = key; best = o; }
     }
     return best;
   }

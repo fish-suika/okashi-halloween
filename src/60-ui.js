@@ -5,6 +5,14 @@ function saveBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch 
 const fmt = n => n.toLocaleString('ja-JP');
 
 let shownResult = false, last = 0;
+// 最後にお菓子を取った相手ごとのイタズラ
+const PRANK_TEXT = {
+  ghost: 'シーツをかぶせられて、おばけの仲間に',
+  pumpkin: '頭に カボチャを かぶせられた',
+  witch: 'カエルに されちゃった',
+  eat: '顔じゅう 落書きされた'
+};
+const PRANK_POP = { ghost: 'おばけの 仲間入り！', pumpkin: 'カボチャ ずきん！', witch: 'ケロッ！', eat: 'らくがき！' };
 
 function bindUI() {
   // 指を動かした量で子どもを動かす（指の位置には合わせない）
@@ -59,8 +67,10 @@ function showResult() {
   shownResult = true;
   const win = Game.result === 'win';
   $('rHead').textContent = win ? '朝まで 生き延びた！' : 'お菓子が 切れた…';
-  $('rSub').textContent = win ? '' : '（イタズラの絵は Phase 2 で入ります）';
+  const f = Game.fat();
+  $('rSub').textContent = win ? (f >= 0.75 ? 'ぱんぱんの まんまる！' : f >= 0.45 ? 'ちょっと まるくなった' : 'ほっそり 生還') : PRANK_TEXT[Game.cause] || '';
   $('rClock').textContent = clockOf(Game.t).text;
+  $('rLeft').textContent = fmt(Game.candy);
   $('rEaten').textContent = fmt(Game.eaten);
   $('rPicked').textContent = fmt(Game.picked);
   $('rStolen').textContent = fmt(Game.stolen);
@@ -85,8 +95,15 @@ function reactToEvents() {
     } else if (e.type === 'hit') {
       Snd.hit(); shakeT = 0.2;
       addPopup('-' + e.n, Game.x, CFG.childY - 16, 9, '#ff6b6b', 0.9);
+    } else if (e.type === 'house') {
+      Snd.house();
+      addPopup('どうぞ！ +' + e.n, e.x < 50 ? 30 : 70, CFG.childY - (e.y - Game.dist) - 8, 7, '#ffcf5a', 1.1);
+    } else if (e.type === 'witch') {
+      Snd.witch();
     } else if (e.type === 'end') {
       Snd.end(e.result === 'win');
+      if (e.result === 'win') addPopup('朝に なった！', 50, 70, 11, '#fff6c8', 2.4);
+      else addPopup(PRANK_POP[e.cause] || 'イタズラ！', 50, 100, 10, '#ff9a3d', 1.8);
     }
   }
   Game.events.length = 0;
