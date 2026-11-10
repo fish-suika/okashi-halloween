@@ -368,7 +368,7 @@ function drawCandyMeter(cx, low) {
   meterFlash = Math.max(0, meterFlash - 1 / 60);
   const lvl = meterV / METER_MAX;
   const mid = clamp(cx, 22, 78) + (low && Game.mode === 'play' ? Math.sin(nowT * 40) * 0.5 : 0);
-  const W = 38, H = 7.2, x0 = mid - W / 2, y0 = C.childY - 22;
+  const W = 38, H = 7.2, x0 = mid - W / 2, y0 = C.childY + 14;
   const col = Game.candy <= 3 ? '#ff5a5a' : Game.candy <= 7 ? '#ffd23f' : '#7ddc5a';
   // 土台
   g.fillStyle = 'rgba(26,18,54,0.78)'; rr(g, sx(x0), sy(y0), W * S, H * S, H / 2 * S); g.fill();
@@ -395,7 +395,7 @@ function drawCandyMeter(cx, low) {
   if (low && Game.mode === 'play') {
     g.globalAlpha = 0.6 + 0.4 * Math.sin(nowT * 12); g.font = '900 ' + 4.4 * S + 'px ' + FONT;
     g.lineWidth = 1 * S; g.fillStyle = '#ff6b6b';
-    g.strokeText('あぶない！', sx(mid), sy(y0 - 3.4)); g.fillText('あぶない！', sx(mid), sy(y0 - 3.4));
+    g.strokeText('あぶない！', sx(mid), sy(y0 + H + 3.6)); g.fillText('あぶない！', sx(mid), sy(y0 + H + 3.6));
     g.globalAlpha = 1;
   }
 }

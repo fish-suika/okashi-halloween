@@ -14,17 +14,17 @@ const CFG = {
   childR: 3.2,
   speed0: 36, speed1: 46,   // 走る速さ（単位/秒）。夜が深まると上がる
   candy0: 10,         // 最初のお菓子の数
-  eat0: 1.0, eat1: 0.6,     // お菓子を 1 個食べる間隔（秒）。夜が深まると短くなる
+  eat0: 1.0, eat1: 0.55,     // お菓子を 1 個食べる間隔（秒）。夜が深まると短くなる
   candyR: 3.2, pumpR: 5.2, ghostR: 4.6,
   pumpLoss: 3, ghostLoss: 3,
   inv: 1.0,           // 取られた後の無敵（秒）
   stun: 0.5,          // カボチャでよろける時間
   stunSlow: 0.55,     // よろけている間の速さの割合
-  ghostChase: 9,      // おばけが子どもへ寄る横の速さ
+  ghostChase: 10,      // おばけが子どもへ寄る横の速さ
   ghostDrop: 7,       // おばけが世界の中で子どもへ近づく速さ
   ghostWake: 125,     // 画面の上からこの距離に入ったら動き出す
-  candyKeep: 0.4,     // 並べるお菓子のうち実際に置く割合（量の調整）
-  ghostBase: 0.3, ghostGrow: 0.7,   // 区画ごとに おばけが加わる確率（最初 + 夜が深まるほど）
+  candyKeep: 0.40,     // 並べるお菓子のうち実際に置く割合（量の調整）
+  ghostBase: 0.35, ghostGrow: 0.7,   // 区画ごとに おばけが加わる確率（最初 + 夜が深まるほど）
   ghostEnd: 0.9,      // 夜の進みがここを過ぎると、新しいおばけは出ない（5:30 以降はお化けが減る）
   houseW: 1.0, houseGive: 8,   // 玄関の明かりがついた家：出やすさ・もらえる数
   witchFrom: 0.55, witchW: 1.6, witchLoss: 5,   // 魔女：出始める夜の進み（約 2 時）・出やすさ・取られる数
@@ -126,7 +126,7 @@ const Game = {
       let v = r() * sum; kind = w[0][0];
       for (const a of w) { if (v < a[1]) { kind = a[0]; break; } v -= a[1]; }
     }
-    const C = CFG;
+    const C = CFG, n0 = this.objs.length;
     if (kind === 'line') {
       const cx = rnd(18, 82);
       for (let i = 0; i < 6; i++) this.add('candy', cx, y0 + 8 + i * 5.5, C.candyR);
@@ -169,6 +169,11 @@ const Game = {
       w.dir = dir; w.launched = false;
       const cx = rnd(20, 80);
       for (let i = 0; i < 5; i++) this.add('candy', cx, y0 + 4 + i * 4.5, C.candyR);   // 通り道の手前のお菓子
+    }
+    // お菓子が 1 個もない区画ができたら 2 個足す（お菓子のない道が続きすぎないように）
+    if (kind !== 'house' && this.objs.slice(n0).filter(o => o.k === 'candy').length < 1) {
+      const cx = rnd(20, 80);
+      for (let i = 0; i < 2; i++) this.objs.push({ k: 'candy', x: cx, y: y0 + 6 + i * 5, r: C.candyR, dead: false, ph: r() * 6.28 });
     }
     // 夜が深まるほど、おばけが加わる（朝が近づくと減る）
     if (kind !== 'bait' && kind !== 'house' && p < C.ghostEnd) {
@@ -481,7 +486,7 @@ const Game = {
   }
   check('よけるだけのボットは朝まで持たない', stats.dodger.wins === 0, stats.dodger.wins + '/' + SEEDS);
   check('拾うだけのボットは、拾いつつよけるボットより生還が少ない', stats.collector.wins < stats.both.wins, stats.collector.wins + ' < ' + stats.both.wins);
-  check('拾いつつよけるボットは多くが朝まで届く（生還 70% 以上）', stats.both.wins >= SEEDS * 0.7, stats.both.wins + '/' + SEEDS);
+  check('拾いつつよけるボットは朝まで届くことがある（生還 30% 以上。人間はボットより下手）', stats.both.wins >= SEEDS * 0.3, stats.both.wins + '/' + SEEDS);
 
   const sum = document.createElement('h2');
   sum.textContent = fail === 0 ? '全部 OK' : fail + ' 件 NG';

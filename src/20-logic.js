@@ -85,7 +85,7 @@ const Game = {
       let v = r() * sum; kind = w[0][0];
       for (const a of w) { if (v < a[1]) { kind = a[0]; break; } v -= a[1]; }
     }
-    const C = CFG;
+    const C = CFG, n0 = this.objs.length;
     if (kind === 'line') {
       const cx = rnd(18, 82);
       for (let i = 0; i < 6; i++) this.add('candy', cx, y0 + 8 + i * 5.5, C.candyR);
@@ -128,6 +128,11 @@ const Game = {
       w.dir = dir; w.launched = false;
       const cx = rnd(20, 80);
       for (let i = 0; i < 5; i++) this.add('candy', cx, y0 + 4 + i * 4.5, C.candyR);   // 通り道の手前のお菓子
+    }
+    // お菓子が 1 個もない区画ができたら 2 個足す（お菓子のない道が続きすぎないように）
+    if (kind !== 'house' && this.objs.slice(n0).filter(o => o.k === 'candy').length < 1) {
+      const cx = rnd(20, 80);
+      for (let i = 0; i < 2; i++) this.objs.push({ k: 'candy', x: cx, y: y0 + 6 + i * 5, r: C.candyR, dead: false, ph: r() * 6.28 });
     }
     // 夜が深まるほど、おばけが加わる（朝が近づくと減る）
     if (kind !== 'bait' && kind !== 'house' && p < C.ghostEnd) {

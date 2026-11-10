@@ -197,7 +197,7 @@
   }
   check('よけるだけのボットは朝まで持たない', stats.dodger.wins === 0, stats.dodger.wins + '/' + SEEDS);
   check('拾うだけのボットは、拾いつつよけるボットより生還が少ない', stats.collector.wins < stats.both.wins, stats.collector.wins + ' < ' + stats.both.wins);
-  check('拾いつつよけるボットは多くが朝まで届く（生還 70% 以上）', stats.both.wins >= SEEDS * 0.7, stats.both.wins + '/' + SEEDS);
+  check('拾いつつよけるボットは朝まで届くことがある（生還 30% 以上。人間はボットより下手）', stats.both.wins >= SEEDS * 0.3, stats.both.wins + '/' + SEEDS);
 
   const sum = document.createElement('h2');
   sum.textContent = fail === 0 ? '全部 OK' : fail + ' 件 NG';
