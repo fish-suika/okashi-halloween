@@ -31,5 +31,6 @@ const CFG = {
   ahead: 200,         // どこまで先に並べておくか
   keySpeed: 70,       // キーで動く速さ（単位/秒）
   dragGain: 1.25,     // 指の動いた量 → 子どもの動き
-  chainTime: 0.8      // この間隔以内に拾うと連続
+  chainTime: 0.8,     // この間隔以内に拾うと連続
+  shareUrl: 'https://fish-suika.github.io/okashi-halloween/'
 };
